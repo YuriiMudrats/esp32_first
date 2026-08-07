@@ -1,16 +1,20 @@
 #include <Arduino.h>
+#include <iostream>
 
 #define LED_RED 15
 #define LED_BLUE 16
 
-bool ledState = false;
 
 class LedController {
 private:
-  static bool ledState;
+    bool m_ledState {};
+    int m_blueLed {};
+    int m_redLed {};
 public:
-static bool ledState;
-
+  LedController(bool ledState = false, int blueLedPin = LED_BLUE, int redLedPin = LED_RED) : m_ledState(ledState), m_blueLed(blueLedPin), m_redLed(redLedPin) {
+    std::cout << "LedController initialized with state: " << m_ledState << std::endl; 
+  }
+  
 
   void turnOnLed(int led) {
       digitalWrite(led, HIGH);
@@ -18,20 +22,22 @@ static bool ledState;
   void turnOffLed( int led)  {
       digitalWrite(led, LOW);
   }
-  void toggleLed(int led, int delayTime) {
-      if (ledState) {
-          turnOffLed(led);
-          ledState = 0;
-
+  void toggleLed(int delayTime) {
+    
+      if (m_ledState) {
+          turnOffLed(m_blueLed);
+          turnOnLed(m_redLed);
+          m_ledState = false;
       } else {
-          turnOnLed(led);
-          ledState = 1;
+          turnOffLed(m_redLed);
+          turnOnLed(m_blueLed);
+          m_ledState = true;
       }
        delay(delayTime);
   }
 };
 
-bool LedController::ledState = false;
+  LedController ledController{true , LED_BLUE, LED_RED};
 
 void setup() {
     Serial.begin(115200);
@@ -42,12 +48,9 @@ void setup() {
     digitalWrite(LED_RED, LOW);
     pinMode(LED_BLUE, OUTPUT);
     digitalWrite(LED_BLUE, HIGH);
+
 }
 
 void loop() {
-  LedController ledControllerRed{};
-  ledControllerRed::ledState = false;
-  LedController ledControllerBlue{};
-  ledControllerRed.toggleLed(LED_RED, 1000);
-  ledControllerBlue.toggleLed(LED_BLUE, 1000);
+  ledController.toggleLed(1000);
 }
