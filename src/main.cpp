@@ -1,130 +1,129 @@
 #include <Arduino.h>
 
-#define LED_RED_PIN 15
-#define BUTTON_PIN 16
-#define BOOT_BUTTON_PIN 0
-#define DEBOUNCE_DELAY 5000
+enum LightState
+{
+    BLINK,
+    ON,
+    OFF
+};
+volatile bool buttonPressed{false};
+volatile int printCount{0};
+volatile bool ledState{false};
 
-bool isPrintedButton = true;
-bool isPrintedBoot = true;
-bool isPrintedBoth = true;
+LightState mode = BLINK;
 
-unsigned long pressTime = 0;
+class LedConfig
+{
+public:
+    static constexpr u_int8_t LED_PIN{15};
+    static const int LED_INTERVAL{300};
+    static const int LED_MODE_CHANGE_INTERVAL{3000};
+};
+
+class ButtonConfig
+{
+public:
+    static constexpr u_int8_t BUTTON_PIN{16};
+};
+
+void printLog(char *text)
+{
+    printCount++;
+    if (printCount % 100000 == 0)
+    {
+        Serial.println(text);
+    }
+}
+
 class LedController
 {
 private:
-    int m_redLed{};
-    int m_buttonPin{};
+    static const int redLed{};
+    static const int m_buttonPin{};
+    static const int m_delay{};
+
+    unsigned long previousTime{0};
+    unsigned long previousButtonTime{0};
 
 public:
-    void init(int redLedPin, int buttonPin)
+    void blinkMode(uint8_t ledPin, int interval)
     {
-        m_redLed = redLedPin;
-        m_buttonPin = buttonPin;
-    }
-
-    void turnOnLed(int led)
-    {
-        digitalWrite(led, HIGH);
-    }
-    void turnOffLed(int led)
-    {
-        digitalWrite(led, LOW);
-    }
-
-    int getButtonState(int pin)
-    {
-        return digitalRead(pin);
-    }
-    void printOnes(const char *buttonType, bool &isPrinted)
-    {
-        if (isPrintedButton)
-            Serial.printf("%s pressed. LED is ON.\n", buttonType);
-        isPrinted = false;
-    }
-
-    void buttonMode(uint32_t delayTime, int ledPin = LED_RED_PIN){
-            turnOnLed(ledPin);
-            delay(delayTime);
-            turnOffLed(ledPin);
-    }
-
-    // led toggle implementation
-    void toggleLed(uint32_t delayTime)
-    {
-        const int buttonState = getButtonState(m_buttonPin);
-        const int bootButtonState = getButtonState(BOOT_BUTTON_PIN);
-
-        Serial.println("Button state: " + String(buttonState) + ", Boot button state: " + String(bootButtonState)  + "\n");
-
-        if (buttonState == LOW && bootButtonState == HIGH)
+        if (mode != BLINK)
         {
-            unsigned long duration = millis() - pressTime;
-            Serial.println("Button pressed. Duration: " + String(duration) + " ms");
-            if(duration > DEBOUNCE_DELAY) {
-                printOnes("Button", isPrintedButton);
-                buttonMode(100, m_redLed);
-            } else {
-                printOnes("Button", isPrintedButton);
-                buttonMode(delayTime, m_redLed);
+            return;
+        }
+
+        unsigned long now = millis();
+        if (now - previousTime >= interval)
+        {
+            previousTime = now;
+            ledState = !ledState;
+            digitalWrite(ledPin, ledState ? HIGH : LOW);
+        }
+    }
+
+    void handleLed(uint8_t ledPin, const int interval, const int modeInterval)
+    {
+        if (!buttonPressed)
+        {
+            digitalWrite(ledPin, LOW);
+        };
+
+        if (buttonPressed)
+        {
+            unsigned long now = millis();
+            if (now - previousButtonTime >= modeInterval)
+            {
+                previousButtonTime = now;
+                mode = static_cast<LightState>((mode + 1)%3);
             }
-            
+            if (mode == ON)
+            {
+                digitalWrite(ledPin, HIGH);
+            }
+            else if (mode == BLINK)
+            {
+                blinkMode(ledPin,interval);
+            } else if (mode == OFF) {
+                digitalWrite(ledPin, LOW);
+            }
         }
-        else if (buttonState == HIGH)
-        {
-            Serial.println("Button released.");
-            isPrintedButton = true;
-            pressTime = millis();
-        }
-        delay(delayTime);
-    }
-    // boot button toggle implementation
-    void bootLedToggle(uint32_t delayTime)
-    {
-        const int bootButtonState = getButtonState(BOOT_BUTTON_PIN);
-        const int buttonState = getButtonState(m_buttonPin);
-        if (bootButtonState == LOW && buttonState == HIGH)
-        {
-            printOnes("Boot", isPrintedBoot);
-            buttonMode(delayTime, m_redLed);
-        }
-        delay(delayTime);
     }
 
-    void toggleLedByTwoButtons(uint32_t delayTime)
+    void toggleLed(uint8_t buttonPin)
     {
-        const int buttonState = getButtonState(m_buttonPin);
-        const int bootButtonState = getButtonState(BOOT_BUTTON_PIN);
+        int buttonState = digitalRead(buttonPin);
 
-        if (buttonState == LOW && bootButtonState == LOW)
+        if (buttonState == LOW)
         {
-            printOnes("Both", isPrintedBoth);
-            buttonMode(delayTime, m_redLed);
+            buttonPressed = true;
+            printLog("LED ON");
         }
-        delay(delayTime);
+        else
+        {
+            buttonPressed = false;
+            printLog("LED OFF");
+        }
     }
 };
 
 LedController ledController{};
+LedConfig ledConfig{};
+ButtonConfig buttonConfig{};
 
 void setup()
 {
     Serial.begin(115200);
     delay(1000);
 
-    pinMode(LED_RED_PIN, OUTPUT);
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
-    pinMode(BOOT_BUTTON_PIN, INPUT_PULLUP);
-
+    pinMode(ledConfig.LED_PIN, OUTPUT);
+    pinMode(buttonConfig.BUTTON_PIN, INPUT_PULLUP);
+    digitalWrite(buttonConfig.BUTTON_PIN, LOW);
     Serial.println("Setup complete. Starting loop...");
-
-    ledController.init(LED_RED_PIN, BUTTON_PIN);
 }
-
 
 void loop()
 {
-    ledController.toggleLed(2000);
-    ledController.bootLedToggle(1000);
-    ledController.toggleLedByTwoButtons(200);
+    ledController.toggleLed(buttonConfig.BUTTON_PIN);
+    ledController.handleLed(ledConfig.LED_PIN, ledConfig.LED_INTERVAL, ledConfig.LED_MODE_CHANGE_INTERVAL);
 }
