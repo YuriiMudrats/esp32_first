@@ -1,23 +1,14 @@
 #include <Arduino.h>
 
-enum LightState
-{
-    BLINK,
-    ON,
-    OFF
-};
-volatile bool buttonPressed{false};
-volatile int printCount{0};
-volatile bool ledState{false};
+bool buttonPressed{false};
+unsigned long timeButtonPress{0};
+unsigned long timeSwitchOn{0};
 
-LightState mode = BLINK;
-
-class LedConfig
+class SwitchConfig
 {
 public:
-    static constexpr u_int8_t LED_PIN{15};
-    static const int LED_INTERVAL{300};
-    static const int LED_MODE_CHANGE_INTERVAL{3000};
+    static constexpr uint8_t SWITCH_PIN{15};
+    static constexpr uint8_t SWITCH_PIN_MEASURE_INPUT{17};
 };
 
 class ButtonConfig
@@ -26,43 +17,13 @@ public:
     static constexpr u_int8_t BUTTON_PIN{16};
 };
 
-void printLog(char *text)
-{
-    printCount++;
-    if (printCount % 100000 == 0)
-    {
-        Serial.println(text);
-    }
-}
-
-class LedController
+class SwitchController
 {
 private:
-    static const int redLed{};
-    static const int m_buttonPin{};
-    static const int m_delay{};
-
     unsigned long previousTime{0};
-    unsigned long previousButtonTime{0};
 
 public:
-    void blinkMode(uint8_t ledPin, int interval)
-    {
-        if (mode != BLINK)
-        {
-            return;
-        }
-
-        unsigned long now = millis();
-        if (now - previousTime >= interval)
-        {
-            previousTime = now;
-            ledState = !ledState;
-            digitalWrite(ledPin, ledState ? HIGH : LOW);
-        }
-    }
-
-    void handleLed(uint8_t ledPin, const int interval, const int modeInterval)
+    void handleSwitch(uint8_t ledPin)
     {
         if (!buttonPressed)
         {
@@ -71,52 +32,62 @@ public:
 
         if (buttonPressed)
         {
-            unsigned long now = millis();
-            if (now - previousButtonTime >= modeInterval)
-            {
-                previousButtonTime = now;
-                mode = static_cast<LightState>((mode + 1)%3);
-            }
-            if (mode == ON)
-            {
-                digitalWrite(ledPin, HIGH);
-            }
-            else if (mode == BLINK)
-            {
-                blinkMode(ledPin,interval);
-            } else if (mode == OFF) {
-                digitalWrite(ledPin, LOW);
-            }
+            digitalWrite(ledPin, HIGH);
         }
     }
 
-    void toggleLed(uint8_t buttonPin)
+    void handleSwitchOn(uint8_t switchMeasurePin)
+    {
+        int switchState = digitalRead(switchMeasurePin);
+        // measure switch delay
+        if (switchState == HIGH)
+        {
+            if(timeSwitchOn == 0){
+                timeSwitchOn = micros();
+            // Serial.println("SWITCH ON");
+            unsigned long delayTime = timeSwitchOn -timeButtonPress;
+            if(delayTime < 3000) {
+                Serial.println(delayTime);
+            }
+            }
+        }
+        else
+        {
+            // Serial.println("SWITCH OFF");
+            timeSwitchOn = 0;
+        }
+    }
+
+    void toggleButton(uint8_t buttonPin)
     {
         int buttonState = digitalRead(buttonPin);
 
         if (buttonState == LOW)
         {
             buttonPressed = true;
-            printLog("LED ON");
+            if(timeButtonPress == 0){
+                timeButtonPress = micros();
+            }
         }
         else
         {
             buttonPressed = false;
-            printLog("LED OFF");
+            timeButtonPress = 0;
         }
     }
 };
 
-LedController ledController{};
-LedConfig ledConfig{};
-ButtonConfig buttonConfig{};
+SwitchController switchController;
+SwitchConfig switchConfig;
+ButtonConfig buttonConfig;
 
 void setup()
 {
     Serial.begin(115200);
     delay(1000);
 
-    pinMode(ledConfig.LED_PIN, OUTPUT);
+    pinMode(switchConfig.SWITCH_PIN, OUTPUT);
+    pinMode(switchConfig.SWITCH_PIN_MEASURE_INPUT, INPUT_PULLUP);
     pinMode(buttonConfig.BUTTON_PIN, INPUT_PULLUP);
     digitalWrite(buttonConfig.BUTTON_PIN, LOW);
     Serial.println("Setup complete. Starting loop...");
@@ -124,6 +95,8 @@ void setup()
 
 void loop()
 {
-    ledController.toggleLed(buttonConfig.BUTTON_PIN);
-    ledController.handleLed(ledConfig.LED_PIN, ledConfig.LED_INTERVAL, ledConfig.LED_MODE_CHANGE_INTERVAL);
+
+    switchController.toggleButton(buttonConfig.BUTTON_PIN);
+    switchController.handleSwitch(switchConfig.SWITCH_PIN);
+    switchController.handleSwitchOn(switchConfig.SWITCH_PIN_MEASURE_INPUT);
 }
