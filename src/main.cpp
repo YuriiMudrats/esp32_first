@@ -44,16 +44,15 @@ public:
         {
             if(timeSwitchOn == 0){
                 timeSwitchOn = micros();
-            // Serial.println("SWITCH ON");
             unsigned long delayTime = timeSwitchOn -timeButtonPress;
             if(delayTime < 3000) {
                 Serial.println(delayTime);
+                // approximate delay time ~ 2,3 ms
             }
             }
         }
         else
         {
-            // Serial.println("SWITCH OFF");
             timeSwitchOn = 0;
         }
     }
