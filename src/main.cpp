@@ -1,56 +1,101 @@
 #include <Arduino.h>
-#include <iostream>
 
-#define LED_RED 15
-#define LED_BLUE 16
+bool buttonPressed{false};
+unsigned long timeButtonPress{0};
+unsigned long timeSwitchOn{0};
 
-
-class LedController {
-private:
-    bool m_ledState {};
-    int m_blueLed {};
-    int m_redLed {};
+class SwitchConfig
+{
 public:
-  LedController(bool ledState = false, int blueLedPin = LED_BLUE, int redLedPin = LED_RED) : m_ledState(ledState), m_blueLed(blueLedPin), m_redLed(redLedPin) {
-    std::cout << "LedController initialized with state: " << m_ledState << std::endl; 
-  }
-  
-
-  void turnOnLed(int led) {
-      digitalWrite(led, HIGH);
-  }
-  void turnOffLed( int led)  {
-      digitalWrite(led, LOW);
-  }
-  void toggleLed(int delayTime) {
-    
-      if (m_ledState) {
-          turnOffLed(m_blueLed);
-          turnOnLed(m_redLed);
-          m_ledState = false;
-      } else {
-          turnOffLed(m_redLed);
-          turnOnLed(m_blueLed);
-          m_ledState = true;
-      }
-       delay(delayTime);
-  }
+    static constexpr uint8_t SWITCH_PIN{15};
+    static constexpr uint8_t SWITCH_PIN_MEASURE_INPUT{17};
 };
 
-  LedController ledController{true , LED_BLUE, LED_RED};
+class ButtonConfig
+{
+public:
+    static constexpr u_int8_t BUTTON_PIN{16};
+};
 
-void setup() {
+class SwitchController
+{
+private:
+    unsigned long previousTime{0};
+
+public:
+    void handleSwitch(uint8_t ledPin)
+    {
+        if (!buttonPressed)
+        {
+            digitalWrite(ledPin, LOW);
+        };
+
+        if (buttonPressed)
+        {
+            digitalWrite(ledPin, HIGH);
+        }
+    }
+
+    void handleSwitchOn(uint8_t switchMeasurePin)
+    {
+        int switchState = digitalRead(switchMeasurePin);
+        // measure switch delay
+        if (switchState == HIGH)
+        {
+            if(timeSwitchOn == 0){
+                timeSwitchOn = micros();
+            unsigned long delayTime = timeSwitchOn -timeButtonPress;
+            if(delayTime < 3000) {
+                Serial.println(delayTime);
+                // approximate delay time ~ 2,3 ms
+            }
+            }
+        }
+        else
+        {
+            timeSwitchOn = 0;
+        }
+    }
+
+    void toggleButton(uint8_t buttonPin)
+    {
+        int buttonState = digitalRead(buttonPin);
+
+        if (buttonState == LOW)
+        {
+            buttonPressed = true;
+            if(timeButtonPress == 0){
+                timeButtonPress = micros();
+            }
+        }
+        else
+        {
+            buttonPressed = false;
+            timeButtonPress = 0;
+        }
+    }
+};
+
+SwitchController switchController;
+SwitchConfig switchConfig;
+ButtonConfig buttonConfig;
+
+void setup()
+{
     Serial.begin(115200);
     delay(1000);
-    
 
-    pinMode(LED_RED, OUTPUT);
-    digitalWrite(LED_RED, LOW);
-    pinMode(LED_BLUE, OUTPUT);
-    digitalWrite(LED_BLUE, HIGH);
-
+    pinMode(switchConfig.SWITCH_PIN, OUTPUT);
+    pinMode(switchConfig.SWITCH_PIN_MEASURE_INPUT, INPUT_PULLUP);
+    pinMode(buttonConfig.BUTTON_PIN, INPUT_PULLUP);
+    digitalWrite(buttonConfig.BUTTON_PIN, LOW);
+    Serial.println("Setup complete. Starting loop...");
 }
 
-void loop() {
-  ledController.toggleLed(1000);
+void loop()
+{
+
+    switchController.toggleButton(buttonConfig.BUTTON_PIN);
+    switchController.handleSwitch(switchConfig.SWITCH_PIN);
+    switchController.handleSwitchOn(switchConfig.SWITCH_PIN_MEASURE_INPUT);
 }
