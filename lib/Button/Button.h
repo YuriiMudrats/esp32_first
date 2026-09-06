@@ -14,6 +14,7 @@ typedef void (*ButtonCallback_t)(void* arg);
 typedef struct {
     uint8_t pin;
     ButtonState state;
+    bool isPressed;
     ButtonCallback_t pressedCb;
     void* arg;
 } Button_FSM_t;
