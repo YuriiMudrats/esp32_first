@@ -1,28 +1,28 @@
 #include <Arduino.h>
-#include "Button.h"
-#include "Led.h"
+#include "Switch.h"
 
-// LED1 блимає кожні 200 мс
+#define SWITCH_1_PIN 15
 
-#define LED_1_PIN 15
-#define BUTTON_PIN 18
+hw_timer_t *timer_1 = NULL;
 
 volatile boolean eventOccurred = false;
-volatile int interruptCount = 0;
-volatile unsigned long lastInterruptTimestamp = 0;
-volatile unsigned long lastButtonState = 0;
+volatile bool switchActive = false;
+unsigned long lastUpdateTime = 0;
+int debounceDelay = 5000; // milliseconds
 
-static Button_FSM_t buttonFsm;
-static Led_t led_1;
 
-void onButtonPress(void *arg)
+static Switch_t switch_1;
+
+void IRAM_ATTR onTimer()
 {
-    Serial.println("Button pressed");
+    Serial.println("Switch state changed");
+    switchActive = true; // Reset the switch state after timer interrupt
+    lastUpdateTime = millis(); // Update the last update time to current time
 }
 
-void quickIRS()
+void quickIRS(void *arg)
 {
-    eventOccurred = true;
+    timerAlarmEnable(timer_1);
 }
 
 void setup()
@@ -31,51 +31,30 @@ void setup()
 
     Serial.begin(115200);
 
-    attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), quickIRS, FALLING);
-
-    retVal = Led_Init(&led_1, LED_1_PIN, OFF, 200, NULL);
+    retVal = Switch_Init(&switch_1, SWITCH_1_PIN, OFF, 100, NULL);
     if (retVal != 0)
     {
-        Serial.println("Failed to initialize LED 1");
+        Serial.println("Failed to initialize switch 1");
     }
 
-    retVal = Button_Init(&buttonFsm, BUTTON_PIN, IDLE, onButtonPress);
-    if (retVal != 0)
-    {
-        Serial.println("Failed to initialize button FSM");
-    }
+    timer_1 = timerBegin(0, 80, true);
+    timerAttachInterrupt(timer_1, &onTimer, true);// 5 seconds
+    timerAlarmWrite(timer_1, 15000000, true);
+    timerAlarmEnable(timer_1);
 }
 
 void loop()
 {
     int retVal = 0;
-    bool buttonState = false;
 
-    retVal = Button_FSM_Update(&buttonFsm);
-    if (retVal != 0)
-    {
-        Serial.println("Failed to update button FSM");
+    if (millis() - lastUpdateTime >= debounceDelay) {
+        lastUpdateTime = millis();
+        switchActive = false; // Reset the switch state after debounce delay
+        Serial.print("Switch state toggled "); // Enable the timer alarm to trigger the interrupt
     }
-
-    buttonState = Button_If_Pressed(&buttonFsm);
-
-    if (eventOccurred)
+    retVal = Switch_Update(&switch_1, switchActive);
+    if (retVal != 0)   
     {
-        unsigned long currentTimestamp = millis();
-        eventOccurred = false;
-
-        Serial.print("Interrupt occurred at: ");
-
-        if (currentTimestamp - lastInterruptTimestamp > 50 && buttonState)
-        {
-            lastInterruptTimestamp = currentTimestamp;
-            Serial.println("Button pressed, updating LED 1");
-
-            retVal = Led_Update(&led_1, buttonState);
-            if (retVal != 0)
-            {
-                Serial.println("Failed to update LED 1");
-            }
-        }
+        Serial.println("Failed to update switch 1");
     }
 }

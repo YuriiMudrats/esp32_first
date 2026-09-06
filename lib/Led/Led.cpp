@@ -22,7 +22,7 @@ static void applyPinState(uint8_t pin, bool activeLevel) {
     digitalWrite(pin, activeLevel ? HIGH : LOW);
 }
 
-int Led_Update(Led_t *ctx, bool isActive) {
+int Led_Update(Led_t *ctx, bool isActive , LedState state = OFF) {
     unsigned long now = millis();
 
     if (ctx == NULL) {
@@ -35,11 +35,25 @@ int Led_Update(Led_t *ctx, bool isActive) {
         return 0;
     }
 
-    ctx->state = BLINK;
-    if (now - ctx->lastTime >= ctx->debounce) {
-        ctx->lastTime = now;
-        bool newState = digitalRead(ctx->pin) == LOW;
-        applyPinState(ctx->pin, newState);
+    switch (state) {
+        case ON:
+            ctx->state = ON;
+            applyPinState(ctx->pin, true);
+            break;
+        case OFF:
+            ctx->state = OFF;
+            applyPinState(ctx->pin, false);
+            break;
+        case BLINK:
+            ctx->state = BLINK;
+            if (now - ctx->lastTime >= ctx->debounce) {
+                ctx->lastTime = now;
+                bool newState = digitalRead(ctx->pin) == LOW;
+                applyPinState(ctx->pin, newState);
+            }
+            break;
+        default:
+            return -1; // Invalid state
     }
 
     return 0;
