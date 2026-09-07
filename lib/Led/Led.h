@@ -4,8 +4,8 @@
 #include <Arduino.h>
 
 typedef enum {
-    ON,
     OFF,
+    ON,
     BLINK
 } LedState;
 
@@ -23,7 +23,7 @@ typedef struct {
 } Led_t;
 
 int Led_Init(Led_t *ctx, uint8_t pin, LedState state, uint32_t debounce, LedCb_t pressedCb);
-int Led_Update(Led_t *ctx, bool isActive);
+int Led_Update(Led_t *ctx, LedState mode);
 int Led_Reset(Led_t *ctx);
 
 

@@ -21,10 +21,16 @@ void onButtonPress(void* arg) {
     Serial.println("Button pressed");
 }
 
+void onButtonLongPress(void* arg) {
+    Serial.println("Button pressed for a long time");
+}
+
 void setup() {
     int retVal = 0;
 
     Serial.begin(115200);
+
+
 
     retVal = Led_Init(&led_1, LED_1_PIN, OFF, 200, NULL);
     if (retVal != 0) {
@@ -41,7 +47,7 @@ void setup() {
         Serial.println("Failed to initialize LED 3");
     }
 
-    retVal = Button_Init(&buttonFsm, BUTTON_PIN, IDLE, onButtonPress);
+    retVal = Button_Init(&buttonFsm, BUTTON_PIN, IDLE, onButtonPress, onButtonLongPress);
     if (retVal != 0) {
         Serial.println("Failed to initialize button FSM");
     }
@@ -49,26 +55,35 @@ void setup() {
 
 void loop() {
     int retVal = 0;
-    bool buttonState = false;
+    LedState mode = OFF;
+    ButtonState buttonState = IDLE;
 
-    retVal = Button_FSM_Update(&buttonFsm);
+    retVal = Button_Update(&buttonFsm);
     if (retVal != 0) {
         Serial.println("Failed to update button FSM");
     }
 
     buttonState = Button_If_Pressed(&buttonFsm);
 
-    retVal = Led_Update(&led_1, buttonState);
+    if (buttonState == PRESSED) {
+        mode = ON;
+    } else if (buttonState == LONG_PRESS) {
+        mode = BLINK;
+    } else {
+         mode = OFF;
+    }
+
+    retVal = Led_Update(&led_1, mode);
     if (retVal != 0) {
         Serial.println("Failed to update LED 1");
     }
 
-    retVal = Led_Update(&led_2, buttonState);
+    retVal = Led_Update(&led_2, mode);
     if (retVal != 0) {
         Serial.println("Failed to update LED 2");
     }
 
-    retVal = Led_Update(&led_3, buttonState);
+    retVal = Led_Update(&led_3, mode);
     if (retVal != 0) {
         Serial.println("Failed to update LED 3");
     }
