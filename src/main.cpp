@@ -4,79 +4,33 @@
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
 #include "esp_log.h"
+#include "Led.h"
+#include "Adc.h"
 
-#define LED_OUT GPIO_NUM_16
-#define BUTTON_IN GPIO_NUM_18
+#define LED_PIN GPIO_NUM_16
+#define ADC_CHANNEL	ADC_CHANNEL_3 // ADC1_CH3: GPIO4// GPIO34 corresponds to ADC1 channel 6
+#define bandwith 200;
 
-static const char *TAG = "DELAY_EXAMPLE";
-
-static bool IRAM_ATTR button_isr_handler(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_ctx) {
-    // bool led_state = gpio_get_level(LED_OUT);
-    gpio_set_level(LED_OUT, 0);
-    return false; // Return true to indicate that a higher priority task should be woken up
-}   
+Led_t led_config = {};
+Adc_t adc_config = {};
+ 
 
 extern "C" void app_main() {
     // init configuration for LED output
-    gptimer_handle_t gptimer = NULL;
-    gpio_config_t led_config = {
-        .pin_bit_mask = (1ULL << LED_OUT),
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-    };
 
-    gptimer_config_t timer_config = {
-        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
-        .direction = GPTIMER_COUNT_UP,
-        .resolution_hz = 1000000, // 1 MHz resolution
-        .intr_priority = 1,
-        .flags = {
-            .intr_shared = 0,
-            .allow_pd = 0
-        }
-    };
+    Led_Init(&led_config, LED_PIN, OFF, 500, NULL);
 
-    gptimer_event_callbacks_t cbs = {
-        .on_alarm = button_isr_handler, // Call the user callback function when the alarm event occurs
-        };
+    Adc_Init(&adc_config, ADC_CHANNEL, NULL);
 
-    gptimer_register_event_callbacks(gptimer, &cbs, NULL);
-    gptimer_new_timer(&timer_config, &gptimer);
-
-    gptimer_alarm_config_t alarm_config = {
-        .alarm_count = 5000, // 5 seconds
-        .reload_count = 0,
-        .flags = {
-            .auto_reload_on_alarm = true
-        },
-    };
-
-    gptimer_set_alarm_action(gptimer, &alarm_config);
-
- gptimer_enable(gptimer);
-// Start the timer
-gptimer_start(gptimer)  ;
     
-
-    gpio_config_t button_config ={
-        .pin_bit_mask = (1ULL << BUTTON_IN),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE
-
-    };
-
-    // gpio config for LED output
-    gpio_config(&led_config);
-    // gpio config for button input
-    gpio_config(&button_config);    
-    gpio_set_level(LED_OUT, 1);
 	while (1) {
         // bool button_state = gpio_get_level(BUTTON_IN);
-        ESP_LOGI(TAG, "Задача виконується...");
+        Adc_GetValue(&adc_config);
+        if(adc_config.voltage_mv / 1000.0f >= 2.6) {
+            Led_Update(&led_config, OFF);
+        } else {
+             Led_Update(&led_config, ON);
+        }   
         vTaskDelay(200 / portTICK_PERIOD_MS);
 	}
 }
