@@ -1,56 +1,36 @@
-#include <Arduino.h>
-#include <iostream>
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "driver/gptimer.h"
+#include "esp_log.h"
+#include "Led.h"
+#include "Adc.h"
 
-#define LED_RED 15
-#define LED_BLUE 16
+#define LED_PIN GPIO_NUM_16
+#define ADC_CHANNEL	ADC_CHANNEL_3 // ADC1_CH3: GPIO4// GPIO34 corresponds to ADC1 channel 6
+#define bandwith 200;
 
+Led_t led_config = {};
+Adc_t adc_config = {};
+ 
 
-class LedController {
-private:
-    bool m_ledState {};
-    int m_blueLed {};
-    int m_redLed {};
-public:
-  LedController(bool ledState = false, int blueLedPin = LED_BLUE, int redLedPin = LED_RED) : m_ledState(ledState), m_blueLed(blueLedPin), m_redLed(redLedPin) {
-    std::cout << "LedController initialized with state: " << m_ledState << std::endl; 
-  }
-  
+extern "C" void app_main() {
+    // init configuration for LED output
 
-  void turnOnLed(int led) {
-      digitalWrite(led, HIGH);
-  }
-  void turnOffLed( int led)  {
-      digitalWrite(led, LOW);
-  }
-  void toggleLed(int delayTime) {
+    Led_Init(&led_config, LED_PIN, OFF, 500, NULL);
+
+    Adc_Init(&adc_config, ADC_CHANNEL, NULL);
+
     
-      if (m_ledState) {
-          turnOffLed(m_blueLed);
-          turnOnLed(m_redLed);
-          m_ledState = false;
-      } else {
-          turnOffLed(m_redLed);
-          turnOnLed(m_blueLed);
-          m_ledState = true;
-      }
-       delay(delayTime);
-  }
-};
-
-  LedController ledController{true , LED_BLUE, LED_RED};
-
-void setup() {
-    Serial.begin(115200);
-    delay(1000);
-    
-
-    pinMode(LED_RED, OUTPUT);
-    digitalWrite(LED_RED, LOW);
-    pinMode(LED_BLUE, OUTPUT);
-    digitalWrite(LED_BLUE, HIGH);
-
-}
-
-void loop() {
-  ledController.toggleLed(1000);
+	while (1) {
+        // bool button_state = gpio_get_level(BUTTON_IN);
+        Adc_GetValue(&adc_config);
+        if(adc_config.voltage_mv / 1000.0f >= 2.6) {
+            Led_Update(&led_config, OFF);
+        } else {
+             Led_Update(&led_config, ON);
+        }   
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+	}
 }
