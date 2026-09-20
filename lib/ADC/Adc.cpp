@@ -72,6 +72,7 @@ int Adc_GetValue(Adc_t *ctx) {
         if (err == ESP_OK) {
             if (ctx->calibration_enabled) {
                 adc_cali_raw_to_voltage(ctx->calibration_handle, ctx->adc_raw, &ctx->voltage_mv);
+                printf("calc %d raw: %d (calibration)\n", ctx->voltage_mv, ctx->adc_raw);
             } else {
                 printf("ADC %d raw: %d (calibration unavailable)\n", ctx->pin, ctx->adc_raw);
             }
