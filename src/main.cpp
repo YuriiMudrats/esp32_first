@@ -6,53 +6,114 @@
 #include "esp_log.h"
 #include "Adc.h"
 #include "pwm.h"
+#include "sine.h"
 
-#define RELAY_PIN GPIO_NUM_16
-#define ADC_CHANNEL ADC_CHANNEL_3 // ADC1_CH3: GPIO4// GPIO34 corresponds to ADC1 channel 6
-#define MOTOR_OUT GPIO_NUM_17
+#define BUZZER_PIN GPIO_NUM_17
 
-Adc_t adc_config = {};
-Pwm_t pwm_config;
+enum class Note : uint32_t {
+    C4 = 262,
+    D4 = 294,
+    E4 = 330,
+    F4 = 349,
+    G4 = 392,
+    A4 = 440,
+    B4 = 494,
+    C5 = 523,
+};
 
+struct NoteEvent {
+    Note note;
+    uint32_t duration_ms;
+};
+
+static void play_note(sine_t *sine, NoteEvent event)
+{
+    sine_set_frequency(sine, static_cast<uint32_t>(event.note));
+    sine_start(sine);
+    vTaskDelay(pdMS_TO_TICKS(event.duration_ms));
+    sine_stop(sine);
+    vTaskDelay(pdMS_TO_TICKS(40));
+}
+
+static void play_baby_shark(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 400});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 400});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 500});
+}
+
+static void play_jingle_bells(sine_t *sine)
+{
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 500});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 500});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::G4, 250});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 600});
+}
+
+static void play_we_will_rock_you(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::E4, 700});
+}
+
+static void play_twinkle_twinkle(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::G4, 300});
+    play_note(sine, {Note::G4, 300});
+    play_note(sine, {Note::A4, 300});
+    play_note(sine, {Note::A4, 300});
+    play_note(sine, {Note::G4, 600});
+}
 
 extern "C" void app_main()
 {
-    // init configuration for LED output
-    gpio_reset_pin(RELAY_PIN);
-    gpio_set_direction(RELAY_PIN, GPIO_MODE_OUTPUT);
+    pwm_t pwm = {};
+    sine_t sine = {};
 
-    int pwm_init_result = Pwm_Init(&pwm_config, MOTOR_OUT);
-    if (pwm_init_result != 0) {
-        printf("Failed to initialize PWM, err = %d\n", pwm_init_result);
-    }
+    pwm_config_t pwm_config = {
+        .gpio = BUZZER_PIN,
+        .channel = LEDC_CHANNEL_0,
+        .timer = LEDC_TIMER_0,
+        .frequency_hz = 1000,
+        .resolution = LEDC_TIMER_12_BIT,
+        .duty = 0,
+        .inverted = false,
+    };
 
-    Adc_Init(&adc_config, ADC_CHANNEL, NULL);
+    pwm_init(&pwm, &pwm_config);
+    sine_init(&sine, &pwm, 440);
 
-
-    while (1)
-    {
-        Adc_GetValue(&adc_config);
-        uint32_t pwm_duty = adc_config.adc_raw < 0
-            ? 0U
-            : static_cast<uint32_t>(adc_config.adc_raw);
-        if (pwm_duty > pwm_config.max_duty) {
-            pwm_duty = pwm_config.max_duty;
-        }
-        if (pwm_init_result == 0) {
-            Pwm_UpdateDuty(&pwm_config, pwm_duty);
-        }
-        printf("PWM GPIO %d: ADC %d mV, duty %lu/4095\n",
-               MOTOR_OUT,
-               adc_config.voltage_mv,
-               static_cast<unsigned long>(pwm_duty));
-        float current_v = adc_config.voltage_mv / 1000.0f;
-        if(current_v>0){
-            printf("RELAY: %s\n", "ON");
-            gpio_set_level(RELAY_PIN, 1);
-        } else {
-            printf("RELAY: %s\n", "OFF");
-            gpio_set_level(RELAY_PIN, 0);
-        }
-        vTaskDelay(200 / portTICK_PERIOD_MS);
+    while (true) {
+        play_baby_shark(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_jingle_bells(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_we_will_rock_you(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_twinkle_twinkle(&sine);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
