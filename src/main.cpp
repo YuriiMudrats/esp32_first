@@ -1,56 +1,119 @@
-#include <Arduino.h>
-#include <iostream>
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "driver/gptimer.h"
+#include "esp_log.h"
+#include "Adc.h"
+#include "pwm.h"
+#include "sine.h"
 
-#define LED_RED 15
-#define LED_BLUE 16
+#define BUZZER_PIN GPIO_NUM_17
 
-
-class LedController {
-private:
-    bool m_ledState {};
-    int m_blueLed {};
-    int m_redLed {};
-public:
-  LedController(bool ledState = false, int blueLedPin = LED_BLUE, int redLedPin = LED_RED) : m_ledState(ledState), m_blueLed(blueLedPin), m_redLed(redLedPin) {
-    std::cout << "LedController initialized with state: " << m_ledState << std::endl; 
-  }
-  
-
-  void turnOnLed(int led) {
-      digitalWrite(led, HIGH);
-  }
-  void turnOffLed( int led)  {
-      digitalWrite(led, LOW);
-  }
-  void toggleLed(int delayTime) {
-    
-      if (m_ledState) {
-          turnOffLed(m_blueLed);
-          turnOnLed(m_redLed);
-          m_ledState = false;
-      } else {
-          turnOffLed(m_redLed);
-          turnOnLed(m_blueLed);
-          m_ledState = true;
-      }
-       delay(delayTime);
-  }
+enum class Note : uint32_t {
+    C4 = 262,
+    D4 = 294,
+    E4 = 330,
+    F4 = 349,
+    G4 = 392,
+    A4 = 440,
+    B4 = 494,
+    C5 = 523,
 };
 
-  LedController ledController{true , LED_BLUE, LED_RED};
+struct NoteEvent {
+    Note note;
+    uint32_t duration_ms;
+};
 
-void setup() {
-    Serial.begin(115200);
-    delay(1000);
-    
-
-    pinMode(LED_RED, OUTPUT);
-    digitalWrite(LED_RED, LOW);
-    pinMode(LED_BLUE, OUTPUT);
-    digitalWrite(LED_BLUE, HIGH);
-
+static void play_note(sine_t *sine, NoteEvent event)
+{
+    sine_set_frequency(sine, static_cast<uint32_t>(event.note));
+    sine_start(sine);
+    vTaskDelay(pdMS_TO_TICKS(event.duration_ms));
+    sine_stop(sine);
+    vTaskDelay(pdMS_TO_TICKS(40));
 }
 
-void loop() {
-  ledController.toggleLed(1000);
+static void play_baby_shark(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 400});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 400});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 500});
+}
+
+static void play_jingle_bells(sine_t *sine)
+{
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 500});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::E4, 500});
+    play_note(sine, {Note::E4, 250});
+    play_note(sine, {Note::G4, 250});
+    play_note(sine, {Note::C4, 250});
+    play_note(sine, {Note::D4, 250});
+    play_note(sine, {Note::E4, 600});
+}
+
+static void play_we_will_rock_you(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::D4, 500});
+    play_note(sine, {Note::E4, 700});
+}
+
+static void play_twinkle_twinkle(sine_t *sine)
+{
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::C4, 300});
+    play_note(sine, {Note::G4, 300});
+    play_note(sine, {Note::G4, 300});
+    play_note(sine, {Note::A4, 300});
+    play_note(sine, {Note::A4, 300});
+    play_note(sine, {Note::G4, 600});
+}
+
+extern "C" void app_main()
+{
+    pwm_t pwm = {};
+    sine_t sine = {};
+
+    pwm_config_t pwm_config = {
+        .gpio = BUZZER_PIN,
+        .channel = LEDC_CHANNEL_0,
+        .timer = LEDC_TIMER_0,
+        .frequency_hz = 1000,
+        .resolution = LEDC_TIMER_12_BIT,
+        .duty = 0,
+        .inverted = false,
+    };
+
+    pwm_init(&pwm, &pwm_config);
+    sine_init(&sine, &pwm, 440);
+
+    while (true) {
+        play_baby_shark(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_jingle_bells(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_we_will_rock_you(&sine);
+        vTaskDelay(pdMS_TO_TICKS(500));
+        play_twinkle_twinkle(&sine);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
