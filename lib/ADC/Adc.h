@@ -1,5 +1,5 @@
-#ifndef ADC_FSM_H
-#define ADC_FSM_H
+#ifndef ESP32_FIRST_ADC_H
+#define ESP32_FIRST_ADC_H
 
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"

@@ -1,119 +1,98 @@
 #include <stdio.h>
+
+#include "driver/gpio.h"
+#include "esp_err.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "driver/gpio.h"
-#include "driver/gptimer.h"
-#include "esp_log.h"
-#include "Adc.h"
 #include "pwm.h"
-#include "sine.h"
+#include "Adc.h"
+#include "servo.h"
 
-#define BUZZER_PIN GPIO_NUM_17
+#define ADC_CHANNEL ADC_CHANNEL_3 // ADC1_CH3: GPIO4// GPIO34 corresponds to ADC1 channel 6
+#define SERVO_GPIO GPIO_NUM_15
+#define SERVO_INITIAL_ANGLE 90
+#define SERVO_MOVE_STEP 45
+#define ADC_MAX_RAW 4095
 
-enum class Note : uint32_t {
-    C4 = 262,
-    D4 = 294,
-    E4 = 330,
-    F4 = 349,
-    G4 = 392,
-    A4 = 440,
-    B4 = 494,
-    C5 = 523,
-};
+Adc_t adc_config = {};
+pwm_t servo_pwm = {};
 
-struct NoteEvent {
-    Note note;
-    uint32_t duration_ms;
-};
+static const char *TAG = "main";
 
-static void play_note(sine_t *sine, NoteEvent event)
+static uint16_t map_adc_to_angle(int adc_raw)
 {
-    sine_set_frequency(sine, static_cast<uint32_t>(event.note));
-    sine_start(sine);
-    vTaskDelay(pdMS_TO_TICKS(event.duration_ms));
-    sine_stop(sine);
-    vTaskDelay(pdMS_TO_TICKS(40));
+    if (adc_raw <= 0) {
+        return SERVO_MIN_ANGLE;
+    }
+    if (adc_raw >= ADC_MAX_RAW) {
+        return SERVO_MAX_ANGLE;
+    }
+
+    return static_cast<uint16_t>(
+        (static_cast<uint32_t>(adc_raw) * SERVO_MAX_ANGLE) / ADC_MAX_RAW);
 }
 
-static void play_baby_shark(sine_t *sine)
-{
-    play_note(sine, {Note::C4, 250});
-    play_note(sine, {Note::D4, 250});
-    play_note(sine, {Note::E4, 400});
-    play_note(sine, {Note::C4, 250});
-    play_note(sine, {Note::D4, 250});
-    play_note(sine, {Note::E4, 400});
-    play_note(sine, {Note::C4, 250});
-    play_note(sine, {Note::D4, 250});
-    play_note(sine, {Note::E4, 500});
-}
-
-static void play_jingle_bells(sine_t *sine)
-{
-    play_note(sine, {Note::E4, 250});
-    play_note(sine, {Note::E4, 250});
-    play_note(sine, {Note::E4, 500});
-    play_note(sine, {Note::E4, 250});
-    play_note(sine, {Note::E4, 250});
-    play_note(sine, {Note::E4, 500});
-    play_note(sine, {Note::E4, 250});
-    play_note(sine, {Note::G4, 250});
-    play_note(sine, {Note::C4, 250});
-    play_note(sine, {Note::D4, 250});
-    play_note(sine, {Note::E4, 600});
-}
-
-static void play_we_will_rock_you(sine_t *sine)
-{
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::D4, 500});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::D4, 500});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::D4, 500});
-    play_note(sine, {Note::E4, 700});
-}
-
-static void play_twinkle_twinkle(sine_t *sine)
-{
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::C4, 300});
-    play_note(sine, {Note::G4, 300});
-    play_note(sine, {Note::G4, 300});
-    play_note(sine, {Note::A4, 300});
-    play_note(sine, {Note::A4, 300});
-    play_note(sine, {Note::G4, 600});
-}
 
 extern "C" void app_main()
 {
-    pwm_t pwm = {};
-    sine_t sine = {};
+    // init configuration for LED output
+   esp_err_t last_error = ESP_OK;
+   int servo_init_angle = 0;
 
-    pwm_config_t pwm_config = {
-        .gpio = BUZZER_PIN,
+    // 1. Конфігурація PWM для SG90
+    pwm_t servo_pwm = {};
+    pwm_config_t servo_cfg = {
+        .gpio = SERVO_GPIO,
         .channel = LEDC_CHANNEL_0,
         .timer = LEDC_TIMER_0,
-        .frequency_hz = 1000,
-        .resolution = LEDC_TIMER_12_BIT,
+        .frequency_hz = SERVO_FREQUENCY_HZ,
+        .resolution = LEDC_TIMER_14_BIT,
         .duty = 0,
-        .inverted = false,
+        .inverted = false
     };
 
-    pwm_init(&pwm, &pwm_config);
-    sine_init(&sine, &pwm, 440);
+    Adc_Init(&adc_config, ADC_CHANNEL, NULL);
+    esp_err_t ret = pwm_init(&servo_pwm, &servo_cfg);
+    if (ret != ESP_OK) {
+        last_error = ret;
+        ESP_LOGE(TAG, "pwm_init failed: %s", esp_err_to_name(ret));
+    }
 
-    while (true) {
-        play_baby_shark(&sine);
-        vTaskDelay(pdMS_TO_TICKS(500));
-        play_jingle_bells(&sine);
-        vTaskDelay(pdMS_TO_TICKS(500));
-        play_we_will_rock_you(&sine);
-        vTaskDelay(pdMS_TO_TICKS(500));
-        play_twinkle_twinkle(&sine);
+
+      // 2. Ініціалізація сервомотора
+    servo_t servo = {};
+    ret = servo_init(&servo, &servo_pwm);
+    if (ret != ESP_OK) {
+        last_error = ret;
+        ESP_LOGE(TAG, "servo_init failed: %s", esp_err_to_name(ret));
+        pwm_deinit(&servo_pwm);
+    } else {
+        // Початкове положення сервомотора.
+        ret = servo_set_angle(&servo, SERVO_INITIAL_ANGLE);
+        if (ret != ESP_OK) {
+            last_error = ret;
+            ESP_LOGE(TAG, "servo_set_angle failed: %s", esp_err_to_name(ret));
+        }
+    }
+
+    while (1) {
+        if (last_error != ESP_OK) {
+            printf("Last init error: %s\n", esp_err_to_name(last_error));
+        } else {
+            Adc_GetValue(&adc_config);
+            uint16_t angle = map_adc_to_angle(adc_config.adc_raw);
+            ret = servo_set_angle(&servo, angle);
+            if (ret != ESP_OK) {
+                last_error = ret;
+                ESP_LOGE(TAG, "servo_set_angle failed: %s", esp_err_to_name(ret));
+            } else {
+                printf("ADC raw: %d, servo angle: %u degrees\n",
+                       adc_config.adc_raw,
+                       angle);
+            }
+        }
+
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
