@@ -44,33 +44,27 @@ int Led_Init(Led_t *ctx, gpio_num_t pin, LedState state, uint32_t debounce, LedC
 
 
     gptimer_handle_t gptimer = NULL;
-    gptimer_config_t timer_config = {
-        .clk_src = GPTIMER_CLK_SRC_DEFAULT, // Typically APB clock (80MHz)
-        .direction = GPTIMER_COUNT_UP,
-        .resolution_hz = 1000000,           // 1MHz resolution = 1 tick equals 1 microsecond
-        .intr_priority = 1,
-        .flags = {
-            .intr_shared = 0,
-            .allow_pd = 0,
-        },
-    };
+    gptimer_config_t timer_config = {};
+    timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT; // Typically APB clock (80MHz)
+    timer_config.direction = GPTIMER_COUNT_UP;
+    timer_config.resolution_hz = 1000000;           // 1MHz resolution = 1 tick equals 1 microsecond
+    timer_config.intr_priority = 1;
+    timer_config.flags.intr_shared = 0;
+    timer_config.flags.allow_pd = 0;
     // create a new timer
     gptimer_new_timer(&timer_config, &gptimer);
     ctx->timer_config = timer_config; 
     ctx->timer = gptimer;
     
-     gptimer_event_callbacks_t cbs = {
-        .on_alarm = timer_on_alarm_cb,
-    };
+     gptimer_event_callbacks_t cbs = {};
+    cbs.on_alarm = timer_on_alarm_cb;
 
     gptimer_register_event_callbacks(gptimer, &cbs, ctx);
 
-    gptimer_alarm_config_t alarm_config = {
-        .alarm_count = static_cast<uint64_t>(debounce) * 1000ULL,
-        .reload_count = 0, 
-                        // Reset to 0 on reload
-        .flags = {.auto_reload_on_alarm = true},         // Automatically restart timer after alarm
-    };
+    gptimer_alarm_config_t alarm_config = {};
+    alarm_config.alarm_count = static_cast<uint64_t>(debounce) * 1000ULL;
+    alarm_config.reload_count = 0; // Reset to 0 on reload
+    alarm_config.flags.auto_reload_on_alarm = true; // Automatically restart timer after alarm
     gptimer_set_alarm_action(gptimer, &alarm_config);
 
 

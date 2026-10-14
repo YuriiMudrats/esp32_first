@@ -45,9 +45,8 @@ esp_err_t encoder_init(encoder_ctx_t *ctx,
         return err;
     }
 
-    pcnt_glitch_filter_config_t filter_config = {
-        .max_glitch_ns = ctx->debounce_ns,
-    };
+    pcnt_glitch_filter_config_t filter_config = {};
+    filter_config.max_glitch_ns = ctx->debounce_ns;
     err = pcnt_unit_set_glitch_filter(ctx->pcnt_unit, &filter_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "pcnt_unit_set_glitch_filter failed: %s", esp_err_to_name(err));
