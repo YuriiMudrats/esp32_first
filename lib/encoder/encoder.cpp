@@ -32,12 +32,15 @@ esp_err_t encoder_init(encoder_ctx_t *ctx,
         return ESP_ERR_INVALID_STATE;
     }
 
-    pcnt_unit_config_t unit_config = {};
-    unit_config.low_limit = ENCODER_MIN_COUNT;
-    unit_config.high_limit = ENCODER_MAX_COUNT;
-    unit_config.intr_priority = 0;
-    unit_config.flags.accum_count = 0;
-    unit_config.clk_src = PCNT_CLK_SRC_DEFAULT;
+    pcnt_unit_config_t unit_config = {
+        .clk_src = PCNT_CLK_SRC_DEFAULT,
+        .low_limit = ENCODER_MIN_COUNT,
+        .high_limit = ENCODER_MAX_COUNT,
+        .intr_priority = 0,
+        .flags = {
+            .accum_count = 0,
+        },
+    };
 
     esp_err_t err = pcnt_new_unit(&unit_config, &ctx->pcnt_unit);
     if (err != ESP_OK) {
@@ -45,34 +48,41 @@ esp_err_t encoder_init(encoder_ctx_t *ctx,
         return err;
     }
 
-    pcnt_glitch_filter_config_t filter_config = {};
-    filter_config.max_glitch_ns = ctx->debounce_ns;
+    pcnt_glitch_filter_config_t filter_config = {
+        .max_glitch_ns = ctx->debounce_ns,
+    };
     err = pcnt_unit_set_glitch_filter(ctx->pcnt_unit, &filter_config);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "pcnt_unit_set_glitch_filter failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    pcnt_chan_config_t chan_a_config = {};
-    chan_a_config.edge_gpio_num = ctx->a_gpio;
-    chan_a_config.level_gpio_num = ctx->b_gpio;
-    chan_a_config.flags.invert_edge_input = 0;
-    chan_a_config.flags.invert_level_input = 0;
-    chan_a_config.flags.virt_edge_io_level = 0;
-    chan_a_config.flags.virt_level_io_level = 0;
+    pcnt_chan_config_t chan_a_config = {
+        .edge_gpio_num = ctx->a_gpio,
+        .level_gpio_num = ctx->b_gpio,
+        .flags = {
+            .invert_edge_input = 0,
+            .invert_level_input = 0,
+            .virt_edge_io_level = 0,
+            .virt_level_io_level = 0,
+        },
+    };
     err = pcnt_new_channel(ctx->pcnt_unit, &chan_a_config, &ctx->chan_a);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "pcnt_new_channel(A) failed: %s", esp_err_to_name(err));
         return err;
     }
 
-    pcnt_chan_config_t chan_b_config = {};
-    chan_b_config.edge_gpio_num = ctx->b_gpio;
-    chan_b_config.level_gpio_num = ctx->a_gpio;
-    chan_b_config.flags.invert_edge_input = 0;
-    chan_b_config.flags.invert_level_input = 0;
-    chan_b_config.flags.virt_edge_io_level = 0;
-    chan_b_config.flags.virt_level_io_level = 0;
+    pcnt_chan_config_t chan_b_config = {
+        .edge_gpio_num = ctx->b_gpio,
+        .level_gpio_num = ctx->a_gpio,
+        .flags = {
+            .invert_edge_input = 0,
+            .invert_level_input = 0,
+            .virt_edge_io_level = 0,
+            .virt_level_io_level = 0,
+        },
+    };
     err = pcnt_new_channel(ctx->pcnt_unit, &chan_b_config, &ctx->chan_b);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "pcnt_new_channel(B) failed: %s", esp_err_to_name(err));

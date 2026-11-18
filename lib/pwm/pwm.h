@@ -1,19 +1,13 @@
-#ifndef PWM_H
-#define PWM_H
+#ifndef LIB_PWM_PWM_H
+#define LIB_PWM_PWM_H
 
+#include <stdbool.h>
 #include <stdint.h>
-#include "driver/gpio.h"
+
 #include "driver/ledc.h"
+#include "esp_err.h"
+#include "hal/gpio_types.h"
 
-typedef struct {
-	ledc_timer_config_t timer_config;
-	ledc_channel_config_t channel_config;
-	uint32_t max_duty;
-} Pwm_t;
-
-int Pwm_Init(Pwm_t *ctx, gpio_num_t pin);
-int Pwm_UpdateDuty(Pwm_t *ctx, uint32_t duty);
-int Pwm_UpdatePercent(Pwm_t *ctx, uint32_t percent);
 typedef struct {
 	gpio_num_t gpio;
 	ledc_channel_t channel;
@@ -31,15 +25,19 @@ typedef struct {
 	bool running;
 } pwm_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 esp_err_t pwm_init(pwm_t *pwm, const pwm_config_t *config);
 esp_err_t pwm_deinit(pwm_t *pwm);
 esp_err_t pwm_start(pwm_t *pwm);
 esp_err_t pwm_stop(pwm_t *pwm);
-uint32_t pwm_max_frequency(ledc_timer_bit_t resolution);
-esp_err_t pwm_set_frequency(pwm_t *pwm, uint32_t frequency_hz);
-esp_err_t pwm_set_resolution(pwm_t *pwm, ledc_timer_bit_t resolution);
 esp_err_t pwm_set_duty(pwm_t *pwm, uint32_t duty);
 esp_err_t pwm_set_percent(pwm_t *pwm, uint8_t percent);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // LIB_PWM_PWM_H
