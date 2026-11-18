@@ -1,99 +1,159 @@
+#include <math.h>
 #include <stdio.h>
 
+#include "driver/gpio.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_log.h"
-#include "i2c.h"
-#include "logger.h"
+#include "drv8833.h"
+#include "encoder.h"
+#include "pid.h"
 
-static const char *TAG = "logger_example";
+// Драйвер DRV8833.
+#define MOTOR_IN1 GPIO_NUM_16
+#define MOTOR_IN2 GPIO_NUM_17
 
-#define I2C_MASTER_SCL_IO GPIO_NUM_9
-#define I2C_MASTER_SDA_IO GPIO_NUM_8
-#define I2C_MASTER_NUM I2C_NUM_0
+// Канали KY-040 та калібрування енкодера.
+#define ENCODER_A GPIO_NUM_7
+#define ENCODER_B GPIO_NUM_15
+#define ENCODER_COUNTS_PER_REVOLUTION 80.0f
+#define ENCODER_DIRECTION 1.0f
+#define ENCODER_GLITCH_FILTER_NS 10000
 
-extern "C" void app_main()
-{
-    // Set up the shared I2C bus used by the AT24C32 EEPROM.
-    i2c_master_bus_handle_t bus = NULL;
-    i2c_bus_settings_t bus_settings = {};
-    bus_settings.port = I2C_MASTER_NUM;
-    bus_settings.sda_pin = I2C_MASTER_SDA_IO;
-    bus_settings.scl_pin = I2C_MASTER_SCL_IO;
-    bus_settings.enable_internal_pullup = true;
+// Параметри приводу та PID-регулятора.
+#define PWM_FREQUENCY_HZ 1000
+#define PWM_RESOLUTION LEDC_TIMER_8_BIT
+#define ANGLE_TOLERANCE_DEG 4.5f
+#define MIN_MOVING_PWM_PERCENT 70.0f
+#define CONTROL_PERIOD_MS 10
+#define LOG_PERIOD_MS 250
+#define SETPOINT_INTERVAL_MS 5000
 
-    esp_err_t err = i2c_bus_init(&bus_settings, &bus);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "I2C bus initialization failed: %s", esp_err_to_name(err));
-        return;
+static_assert(CONTROL_PERIOD_MS * configTICK_RATE_HZ >= 1000 &&
+              (CONTROL_PERIOD_MS * configTICK_RATE_HZ) % 1000 == 0,
+              "Control period must be an exact number of FreeRTOS ticks");
+
+// Уставки абсолютного кута відносно початкового положення двигуна.
+static const float ANGLE_SETPOINTS_DEG[] = {
+    0.0f, 45.0f, 90.0f, 135.0f, 180.0f, 215.0f, 260.0f, 305.0f
+};
+#define SETPOINT_COUNT (sizeof(ANGLE_SETPOINTS_DEG) / sizeof(ANGLE_SETPOINTS_DEG[0]))
+
+// Під час руху додатна команда відповідає руху в напрямку IN1.
+static const pid_config_t PID_CONFIG = {
+    .kp = 2.0,//2.0f,
+    .ki = 1.0,//5.0,//0.02f,
+    .kd = 3.0,//0.1f,
+    .output_min = -100.0f,
+    .output_max = 100.0f,
+    .integral_min = -500.0f,
+    .integral_max = 500.0f,
+};
+
+// Масштабування ненульового виходу PID до діапазону робочого PWM.
+static float map_motor_pwm(float output_percent) {
+    if (output_percent == 0.0f) {
+        return 0.0f;
     }
 
-    // Probe the EEPROM and scan its pages to restore the last log number
-    // and the next ring-buffer slot after a reboot.
-    logger_handle_t logger = NULL;
-    err = logger_init(bus, AT24C32_DEFAULT_ADDRESS, &logger);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "AT24C32 logger initialization failed: %s",
-                 esp_err_to_name(err));
-        (void)i2c_bus_deinit(bus);
-        return;
-    }
+    const float magnitude = MIN_MOVING_PWM_PERCENT +
+        fabsf(output_percent) * (100.0f - MIN_MOVING_PWM_PERCENT) / 100.0f;
+    return copysignf(magnitude, output_percent);
+}
 
-    static const char *sample_logs[] = {
-        "System started",
-        "Temperature: 25 C",
-        "Pressure: 1013 hPa",
+extern "C" void app_main() {
+    drv8833_t motor = {};
+    const drv8833_config_t motor_config = {
+        .in1 = {
+            .gpio = MOTOR_IN1,
+            .channel = LEDC_CHANNEL_0,
+            .timer = LEDC_TIMER_0,
+            .frequency_hz = PWM_FREQUENCY_HZ,
+            .resolution = PWM_RESOLUTION,
+            .duty = 0,
+            .inverted = false,
+        },
+        .in2 = {
+            .gpio = MOTOR_IN2,
+            .channel = LEDC_CHANNEL_1,
+            .timer = LEDC_TIMER_0,
+            .frequency_hz = PWM_FREQUENCY_HZ,
+            .resolution = PWM_RESOLUTION,
+            .duty = 0,
+            .inverted = false,
+        },
     };
-    constexpr size_t SAMPLE_LOG_COUNT = sizeof(sample_logs) / sizeof(sample_logs[0]);
+    ESP_ERROR_CHECK(drv8833_init(&motor, &motor_config));
 
-    // Write a few example events; the logger assigns sequential numbers and
-    // automatically wraps from #999 back to #0.
-    for (size_t index = 0U; index < SAMPLE_LOG_COUNT; ++index) {
-        err = logger_write(logger, sample_logs[index]);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to write example log: %s", esp_err_to_name(err));
-            (void)logger_deinit(logger);
-            (void)i2c_bus_deinit(bus);
-            return;
-        }
-    }
+    encoder_ctx_t encoder = {};
+    ESP_ERROR_CHECK(encoder_init(&encoder,
+                                 ENCODER_A,
+                                 ENCODER_B,
+                                 GPIO_NUM_NC,
+                                 ENCODER_GLITCH_FILTER_NS));
 
-    uint32_t test_write_count = 0U;
+    pid_controller_t angle_pid = {};
+    ESP_ERROR_CHECK(pid_init(&angle_pid, &PID_CONFIG));
 
-    // Periodically write a test entry, read it back from EEPROM, and report
-    // whether the round trip succeeded.
-    while (true) {
-        logger_info_t info = {};
-        err = logger_get_info(logger, &info);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to get logger state: %s", esp_err_to_name(err));
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            continue;
-        }
+    int32_t initial_count = 0;
+    ESP_ERROR_CHECK(encoder_read(&encoder, &initial_count));
 
-        const uint16_t number_to_read = (info.count == 0U)
-                                            ? 0U
-                                            : static_cast<uint16_t>(
-                                                  (info.last_number + 1U) %
-                                                  LOGGER_NUMBER_COUNT);
-        err = logger_printf(logger, "Loop test write %u",
-                            static_cast<unsigned int>(test_write_count++));
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "EEPROM log write failed: %s", esp_err_to_name(err));
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            continue;
-        }
+    printf("Starting angle target: %.1f deg; encoder: %.1f counts/rev.\n",
+           ANGLE_SETPOINTS_DEG[0],
+           ENCODER_COUNTS_PER_REVOLUTION);
+    printf("If the angle moves away from target, change ENCODER_DIRECTION to -1.\n");
 
-        logger_record_t record = {};
-        err = logger_read(logger, number_to_read, &record);
-        if (err == ESP_OK) {
-            printf("WRITE/READ OK: %s\n", record.text);
-        } else {
-            ESP_LOGE(TAG, "EEPROM read of log #%u failed: %s",
-                     static_cast<unsigned int>(number_to_read), esp_err_to_name(err));
+    const int64_t start_time_us = esp_timer_get_time();
+    int64_t previous_log_us = start_time_us;
+    int64_t setpoint_time_us = start_time_us;
+    size_t setpoint_index = 0;
+    float setpoint_deg = ANGLE_SETPOINTS_DEG[setpoint_index];
+
+    while (1) {
+        int32_t encoder_count = 0;
+        ESP_ERROR_CHECK(encoder_read(&encoder, &encoder_count));
+
+        const float angle_deg =
+            ((encoder_count - initial_count) * 360.0f /
+             ENCODER_COUNTS_PER_REVOLUTION) *
+            ENCODER_DIRECTION;
+
+        const int64_t current_time_us = esp_timer_get_time();
+        const int64_t setpoint_interval_us =
+            static_cast<int64_t>(SETPOINT_INTERVAL_MS) * 1000;
+        while (current_time_us - setpoint_time_us >= setpoint_interval_us) {
+            setpoint_time_us += setpoint_interval_us;
+            setpoint_index = (setpoint_index + 1) % SETPOINT_COUNT;
+            setpoint_deg = ANGLE_SETPOINTS_DEG[setpoint_index];
+            ESP_ERROR_CHECK(pid_reset(&angle_pid));
+            printf("New angle target: %.1f deg.\n", setpoint_deg);
         }
 
-        fflush(stdout);
-        vTaskDelay(pdMS_TO_TICKS(5000));
+        float output_percent = 0.0f;
+        ESP_ERROR_CHECK(pid_compute(&angle_pid,
+                                    setpoint_deg,
+                                    angle_deg,
+                                    CONTROL_PERIOD_MS / 1000.0f,
+                                    &output_percent));
+
+        if (fabsf(setpoint_deg - angle_deg) <= ANGLE_TOLERANCE_DEG) {
+            output_percent = 0.0f;
+            ESP_ERROR_CHECK(pid_reset(&angle_pid));
+        }
+
+        output_percent = map_motor_pwm(output_percent);
+        ESP_ERROR_CHECK(drv8833_set_speed(
+            &motor, static_cast<int16_t>(lroundf(output_percent))));
+
+        if (current_time_us - previous_log_us >=
+            static_cast<int64_t>(LOG_PERIOD_MS) * 1000) {
+            printf("Angle: %.1f deg, target: %.1f deg, PWM: %.0f%%\n",
+                   angle_deg,
+                   setpoint_deg,
+                   output_percent);
+            previous_log_us = current_time_us;
+        }
+        vTaskDelay(pdMS_TO_TICKS(CONTROL_PERIOD_MS));
     }
 }
+
